@@ -1,0 +1,5 @@
+catalog/packages/work/
+catalog/packages/zips/
+__pycache__/
+*.pyc
+.DS_Store

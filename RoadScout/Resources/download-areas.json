@@ -1,0 +1,331 @@
+{
+ "version": 1,
+ "continents": [
+  {
+   "id": "europe",
+   "name": "Europa",
+   "countries": [
+    {
+     "id": "spain",
+     "name": "España",
+     "scheme": "europe",
+     "regions": [
+      {
+       "id": "andalucia",
+       "name": "Andalucía",
+       "bbox": [
+        -7.5247,
+        35.7064,
+        -1.3321,
+        38.7335
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "aragon",
+       "name": "Aragón",
+       "bbox": [
+        -2.1791,
+        39.8383,
+        0.7726,
+        42.9268
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "asturias",
+       "name": "Asturias",
+       "bbox": [
+        -7.1886,
+        42.8789,
+        -4.3996,
+        44.011
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "es-canarias",
+       "name": "Canarias",
+       "bbox": [
+        -18.9235,
+        26.3612,
+        -12.4787,
+        30.2565
+       ],
+       "boundaryOsmId": 349048,
+       "wholeCountry": false
+      },
+      {
+       "id": "cantabria",
+       "name": "Cantabria",
+       "bbox": [
+        -4.8616,
+        42.7546,
+        -3.145,
+        43.8655
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "castilla-y-leon",
+       "name": "Castilla y León",
+       "bbox": [
+        -7.0805,
+        40.0804,
+        -1.7661,
+        43.2409
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "castilla-la-mancha",
+       "name": "Castilla-La Mancha",
+       "bbox": [
+        -5.4111,
+        38.0201,
+        -0.9126,
+        41.3322
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "cataluna",
+       "name": "Cataluña",
+       "bbox": [
+        0.1564,
+        40.2124,
+        4.1748,
+        42.8632
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "ceuta",
+       "name": "Ceuta",
+       "bbox": [
+        -5.391,
+        35.867,
+        -5.2566,
+        35.9587
+       ],
+       "boundaryOsmId": 1822781,
+       "wholeCountry": false
+      },
+      {
+       "id": "valencia",
+       "name": "Comunidad Valenciana",
+       "bbox": [
+        -1.5316,
+        37.8434,
+        1.6864,
+        40.7933
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "extremadura",
+       "name": "Extremadura",
+       "bbox": [
+        -7.5437,
+        37.9385,
+        -4.6424,
+        40.4891
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "galicia",
+       "name": "Galicia",
+       "bbox": [
+        -9.779,
+        41.8044,
+        -6.7271,
+        44.1486
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "islas-baleares",
+       "name": "Islas Baleares",
+       "bbox": [
+        0.6152,
+        38.0568,
+        4.9383,
+        40.7098
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "la-rioja",
+       "name": "La Rioja",
+       "bbox": [
+        -3.1402,
+        41.914,
+        -1.673,
+        42.6462
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "madrid",
+       "name": "Madrid",
+       "bbox": [
+        -4.5895,
+        39.8812,
+        -3.0504,
+        41.1686
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "melilla",
+       "name": "Melilla",
+       "bbox": [
+        -2.9724,
+        35.2639,
+        -2.9082,
+        35.3239
+       ],
+       "boundaryOsmId": 1154757,
+       "wholeCountry": false
+      },
+      {
+       "id": "murcia",
+       "name": "Murcia",
+       "bbox": [
+        -2.3512,
+        37.1121,
+        -0.2472,
+        38.7602
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "navarra",
+       "name": "Navarra",
+       "bbox": [
+        -2.5023,
+        41.9061,
+        -0.7165,
+        43.3165
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "pais-vasco",
+       "name": "País Vasco",
+       "bbox": [
+        -3.4543,
+        42.4692,
+        -1.6663,
+        43.7473
+       ],
+       "wholeCountry": false
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "asia",
+   "name": "Asia",
+   "countries": [
+    {
+     "id": "japan",
+     "name": "Japón",
+     "scheme": "japan",
+     "regions": [
+      {
+       "id": "chubu",
+       "name": "Chubu",
+       "bbox": [
+        135.4393,
+        34.2665,
+        139.909,
+        38.9072
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "chugoku",
+       "name": "Chugoku",
+       "bbox": [
+        129.8975,
+        33.5423,
+        134.5244,
+        36.9681
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "hokkaido",
+       "name": "Hokkaido",
+       "bbox": [
+        137.9346,
+        41.151,
+        146.2476,
+        45.8154
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "kansai",
+       "name": "Kansai",
+       "bbox": [
+        133.9644,
+        33.079,
+        137.6573,
+        36.4582
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "kanto",
+       "name": "Kanto",
+       "bbox": [
+        134.5757,
+        20.0823,
+        154.4709,
+        37.1599
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "kyushu",
+       "name": "Kyushu",
+       "bbox": [
+        122.5814,
+        21.3869,
+        132.8044,
+        35.0972
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "shikoku",
+       "name": "Shikoku",
+       "bbox": [
+        131.7698,
+        32.2296,
+        135.1794,
+        34.6515
+       ],
+       "wholeCountry": false
+      },
+      {
+       "id": "tohoku",
+       "name": "Tohoku",
+       "bbox": [
+        138.9325,
+        36.5286,
+        142.8782,
+        41.6418
+       ],
+       "wholeCountry": false
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

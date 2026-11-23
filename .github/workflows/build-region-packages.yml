@@ -1,0 +1,239 @@
+name: Build region packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      country:
+        description: "spain | japan | all | smoke (ceuta, melilla, la-rioja)"
+        required: true
+        default: smoke
+        type: choice
+        options:
+          - smoke
+          - spain
+          - japan
+          - all
+      force:
+        description: "Reconstruir aunque exista el ZIP"
+        required: false
+        default: false
+        type: boolean
+      publish:
+        description: "Subir al release RoadScout-regions y actualizar region-index.json"
+        required: false
+        default: true
+        type: boolean
+      regions:
+        description: "Opcional: ids separados por coma (p.ej. la-rioja,islas-baleares). Si se rellena, ignora country."
+        required: false
+        default: ""
+        type: string
+
+env:
+  PACKAGE_VERSION: "9"
+  ROADSCOUT_WORK: ${{ github.workspace }}/catalog/packages/work
+  ROADSCOUT_ZIPS: ${{ github.workspace }}/catalog/packages/zips
+
+jobs:
+  select-regions:
+    runs-on: ubuntu-latest
+    outputs:
+      regions: ${{ steps.set.outputs.regions }}
+    steps:
+      - id: set
+        shell: bash
+        run: |
+          set -euo pipefail
+          custom='${{ inputs.regions }}'
+          if [ -n "$custom" ]; then
+            # "a,b,c" → ["a","b","c"]
+            regions=$(CUSTOM="$custom" python3 -c 'import json,os; ids=[p for p in os.environ["CUSTOM"].replace(" ","").split(",") if p]; assert ids; print(json.dumps(ids))')
+          else
+            case "${{ inputs.country }}" in
+              smoke)
+                regions='["ceuta","melilla","la-rioja"]'
+                ;;
+              spain)
+                regions='["andalucia","aragon","asturias","es-canarias","cantabria","castilla-y-leon","castilla-la-mancha","cataluna","ceuta","valencia","extremadura","galicia","islas-baleares","la-rioja","madrid","melilla","murcia","navarra","pais-vasco"]'
+                ;;
+              japan)
+                regions='["chubu","chugoku","hokkaido","kansai","kanto","kyushu","shikoku","tohoku"]'
+                ;;
+              all)
+                regions='["andalucia","aragon","asturias","es-canarias","cantabria","castilla-y-leon","castilla-la-mancha","cataluna","ceuta","valencia","extremadura","galicia","islas-baleares","la-rioja","madrid","melilla","murcia","navarra","pais-vasco","chubu","chugoku","hokkaido","kansai","kanto","kyushu","shikoku","tohoku"]'
+                ;;
+              *)
+                echo "country no válido: ${{ inputs.country }}"
+                exit 1
+                ;;
+            esac
+          fi
+          echo "regions=$regions" >> "$GITHUB_OUTPUT"
+        env:
+          CUSTOM: ${{ inputs.regions }}
+
+  build:
+    needs: select-regions
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      # 2 era un cuello: CyL/Canarias ocupaban ambos slots >30 min y el resto no arrancaba.
+      max-parallel: 6
+      matrix:
+        region: ${{ fromJson(needs.select-regions.outputs.regions) }}
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Python deps
+        run: pip install --upgrade pip -r scripts/requirements-catalog.txt
+
+      - name: Install tippecanoe
+        run: |
+          set -euo pipefail
+          # Binario precompilado: evita ~1–2 min de compile por job.
+          if ! command -v tippecanoe >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y tippecanoe || {
+              sudo apt-get install -y build-essential libsqlite3-dev zlib1g-dev
+              git clone --depth 1 https://github.com/felt/tippecanoe.git /tmp/tippecanoe
+              make -C /tmp/tippecanoe -j"$(nproc)"
+              sudo make -C /tmp/tippecanoe install
+            }
+          fi
+          tippecanoe --version
+
+      - name: Prepare data dirs
+        run: |
+          mkdir -p "$ROADSCOUT_WORK" "$ROADSCOUT_ZIPS"
+          # Quitar symlinks rotos del repo si existieran en el checkout
+          if [ -L catalog/packages/work ] && [ ! -e catalog/packages/work ]; then
+            rm -f catalog/packages/work
+            mkdir -p "$ROADSCOUT_WORK"
+          fi
+          if [ -L catalog/packages/zips ] && [ ! -e catalog/packages/zips ]; then
+            rm -f catalog/packages/zips
+            mkdir -p "$ROADSCOUT_ZIPS"
+          fi
+
+      - name: Cache extract PBF
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.ROADSCOUT_WORK }}
+          key: osm-pbf-${{ matrix.region }}-${{ env.PACKAGE_VERSION }}-v2
+          restore-keys: |
+            osm-pbf-${{ matrix.region }}-
+            osm-pbf-
+
+      - name: Build region package
+        # JP grandes (Kanto/Chubu/Kansai): tippecanoe+Overpass > 240 min.
+        timeout-minutes: 360
+        run: |
+          set -euo pipefail
+          extra=()
+          if [ "${{ inputs.force }}" = "true" ]; then
+            extra+=(--force)
+          fi
+          python3 scripts/build_catalog_packages.py \
+            --region "${{ matrix.region }}" \
+            --keep-pbf \
+            "${extra[@]}"
+      - name: Validate package
+        run: |
+          set -euo pipefail
+          zip="$ROADSCOUT_ZIPS/${{ matrix.region }}-v${PACKAGE_VERSION}.zip"
+          test -f "$zip"
+          python3 scripts/validate_region_package.py "$zip"
+
+      - name: Upload region artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: region-${{ matrix.region }}-v${{ env.PACKAGE_VERSION }}
+          path: ${{ env.ROADSCOUT_ZIPS }}/${{ matrix.region }}-v${{ env.PACKAGE_VERSION }}.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Free runner disk
+        if: always()
+        run: |
+          # Conserva el ZIP; limpia PBF y temporales grandes
+          find "$ROADSCOUT_WORK" -type f \( -name '*.osm.pbf' -o -name '*.partial' \) -delete || true
+          df -h
+
+  publish:
+    needs: [select-regions, build]
+    if: ${{ always() && inputs.publish && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download region artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: collected
+          pattern: region-*-v${{ env.PACKAGE_VERSION }}
+          merge-multiple: true
+
+      - name: Collect zips
+        run: |
+          set -euo pipefail
+          mkdir -p publish-zips
+          find collected -type f -name '*-v${{ env.PACKAGE_VERSION }}.zip' -exec cp -v {} publish-zips/ \;
+          ls -lh publish-zips
+          test "$(find publish-zips -name '*.zip' | wc -l)" -gt 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Merge index.json
+        env:
+          GH_TOKEN: ${{ secrets.REGIONS_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "Falta el secret REGIONS_RELEASE_TOKEN"
+            exit 1
+          fi
+          python3 scripts/merge_region_index.py \
+            --zips-dir publish-zips \
+            --out publish-zips/index.json \
+            --version "${PACKAGE_VERSION}"
+
+      - name: Upload to RoadScout-regions release
+        env:
+          GH_TOKEN: ${{ secrets.REGIONS_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! gh release view regiones --repo rosteoman/RoadScout-regions >/dev/null 2>&1; then
+            gh release create regiones \
+              --repo rosteoman/RoadScout-regions \
+              --title "Regiones" \
+              --notes "Paquetes de carreteras por región. La app descarga el zip de la región elegida."
+          fi
+          gh release upload regiones \
+            --repo rosteoman/RoadScout-regions \
+            --clobber \
+            publish-zips/index.json \
+            publish-zips/*-v${PACKAGE_VERSION}.zip
+
+      - name: Upload index artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: region-index-v${{ env.PACKAGE_VERSION }}
+          path: publish-zips/index.json
+          if-no-files-found: error
+          retention-days: 7
