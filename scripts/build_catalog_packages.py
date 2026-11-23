@@ -94,6 +94,16 @@ EXTRACT_OVERRIDES: Dict[str, Tuple[str, bool]] = {
     "tohoku": (f"{OSM_FR}/asia/japan/tohoku-latest.osm.pbf", False),
 }
 
+JP_REGION_IDS = {
+    "chubu", "chugoku", "hokkaido", "kansai", "kanto", "kyushu", "shikoku", "tohoku",
+}
+ES_REGION_IDS = {
+    "andalucia", "aragon", "asturias", "cantabria", "castilla-y-leon",
+    "castilla-la-mancha", "cataluna", "extremadura", "galicia",
+    "islas-baleares", "la-rioja", "madrid", "murcia", "navarra",
+    "pais-vasco", "valencia", "ceuta", "melilla",
+}
+
 
 def _resolve_data_dir(env_name: str, default: Path) -> Path:
     """Directorio usable: env, o default si es real/creable (no symlink roto)."""
@@ -1352,6 +1362,13 @@ def resolve_parent_source(
     geofabrik: Dict[str, dict],
     current: Source,
 ) -> Optional[Source]:
+    """Extracto país (OSM.fr) o el menor Geofabrik que cubra y sea claramente mayor."""
+    # Regional OSM.fr → padre país. Evita Overpass masivo en JP (p.ej. Kansai ~11k ways).
+    if region["id"] in JP_REGION_IDS and current.path.name != "japan.osm.pbf":
+        return _source_from_url(f"{OSM_FR}/asia/japan.osm.pbf", clip=True)
+    if region["id"] in ES_REGION_IDS and current.path.name != "spain.osm.pbf":
+        return _source_from_url(f"{OSM_FR}/europe/spain.osm.pbf", clip=True)
+
     lon, lat = _center(region["bbox"])
     matches = [item for item in geofabrik.values() if _covers(item, lon, lat)]
     larger = [
@@ -1512,31 +1529,30 @@ def read_route_relations(path: Path) -> List[CatalogRoute]:
     return scanner.routes
 
 
-def complete_relation_gaps(
+class _WantedWayGeomPass(osmium.SimpleHandler):
+    """Extrae geometría solo de way ids pedidos (p.ej. desde extracto padre)."""
+
+    def __init__(self, wanted: set[int]) -> None:
+        super().__init__()
+        self.wanted = wanted
+        self.geoms: Dict[int, List[Coord]] = {}
+
+    def way(self, way: osmium.osm.Way) -> None:
+        way_id = int(way.id)
+        if way_id not in self.wanted:
+            return
+        coords = _way_coords(way)
+        if len(coords) >= 2:
+            self.geoms[way_id] = coords
+
+
+def _append_relation_way_geoms(
     pieces: List[Piece],
-    routes: Sequence[CatalogRoute],
+    have: set[int],
+    fetched: Dict[int, List[Coord]],
     membership: Dict[int, Tuple[str, Optional[str]]],
     boundary: Optional[Boundary],
-) -> List[Piece]:
-    """Pide a Overpass los miembros de una relación que el extracto no trae."""
-    have = {piece.way_id for piece in pieces}
-    in_region = {piece.way_id for piece in pieces if piece.in_region}
-    missing: List[int] = []
-    seen: set[int] = set()
-    for route in routes:
-        if route.road_type not in _ROUTE_RANK:
-            continue
-        if not any(way_id in in_region for way_id in route.way_ids):
-            continue
-        for way_id in route.way_ids:
-            if way_id in have or way_id in seen:
-                continue
-            seen.add(way_id)
-            missing.append(way_id)
-    if not missing:
-        return pieces
-    print(f"  Overpass relaciones: {len(missing)} vías fuera del extracto", flush=True)
-    fetched = fetch_way_geometries(missing)
+) -> int:
     added = 0
     for way_id, coords in fetched.items():
         if way_id in have or len(coords) < 2:
@@ -1558,6 +1574,53 @@ def complete_relation_gaps(
         )
         have.add(way_id)
         added += 1
+    return added
+
+
+def complete_relation_gaps(
+    pieces: List[Piece],
+    routes: Sequence[CatalogRoute],
+    membership: Dict[int, Tuple[str, Optional[str]]],
+    boundary: Optional[Boundary],
+    *,
+    parent_path: Optional[Path] = None,
+) -> List[Piece]:
+    """Completa miembros de relación fuera del extracto: padre primero, Overpass resto."""
+    have = {piece.way_id for piece in pieces}
+    in_region = {piece.way_id for piece in pieces if piece.in_region}
+    missing: List[int] = []
+    seen: set[int] = set()
+    for route in routes:
+        if route.road_type not in _ROUTE_RANK:
+            continue
+        if not any(way_id in in_region for way_id in route.way_ids):
+            continue
+        for way_id in route.way_ids:
+            if way_id in have or way_id in seen:
+                continue
+            seen.add(way_id)
+            missing.append(way_id)
+    if not missing:
+        return pieces
+
+    if parent_path and parent_path.exists():
+        print(
+            f"  relaciones: {len(missing)} vías fuera; buscando en {parent_path.name}",
+            flush=True,
+        )
+        scanner = _WantedWayGeomPass(set(missing))
+        scanner.apply_file(str(parent_path), locations=True)
+        added = _append_relation_way_geoms(pieces, have, scanner.geoms, membership, boundary)
+        if added:
+            print(f"  +{added} vías de relación desde extracto padre", flush=True)
+
+    still_missing = [way_id for way_id in missing if way_id not in have]
+    if not still_missing:
+        return pieces
+
+    print(f"  Overpass relaciones: {len(still_missing)} vías aún fuera", flush=True)
+    fetched = fetch_way_geometries(still_missing)
+    added = _append_relation_way_geoms(pieces, have, fetched, membership, boundary)
     if added:
         print(f"  +{added} vías de relación desde Overpass", flush=True)
     return pieces
@@ -1597,7 +1660,13 @@ def build_region(
         boundary,
         parent_path=parent_path,
     )
-    pieces = complete_relation_gaps(pieces, routes, membership, boundary)
+    pieces = complete_relation_gaps(
+        pieces,
+        routes,
+        membership,
+        boundary,
+        parent_path=parent_path,
+    )
     apply_route_membership(pieces, membership)
     promote_outside_pieces(pieces)
     mark_urban_streets(pieces, collector.urban_polygons)

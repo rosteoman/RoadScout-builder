@@ -129,9 +129,11 @@ jobs:
       - name: Cache extract PBF
         uses: actions/cache@v4
         with:
+          # Incluye padre país (japan.osm.pbf / spain.osm.pbf) si el build lo bajó.
           path: ${{ env.ROADSCOUT_WORK }}
-          key: osm-pbf-${{ matrix.region }}-${{ env.PACKAGE_VERSION }}-v2
+          key: osm-pbf-${{ matrix.region }}-${{ env.PACKAGE_VERSION }}-v3-parent
           restore-keys: |
+            osm-pbf-${{ matrix.region }}-${{ env.PACKAGE_VERSION }}-v3-parent
             osm-pbf-${{ matrix.region }}-
             osm-pbf-
 
