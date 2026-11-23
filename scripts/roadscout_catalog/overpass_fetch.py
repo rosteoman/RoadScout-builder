@@ -207,27 +207,71 @@ def fetch_way_geometries(
     sleep_between_batches_s: float = 1.5,
     on_progress: Optional[Callable[[int, int, int, int], None]] = None,
 ) -> Dict[int, List[Coord]]:
-    """Return {way_id: [(lon, lat), ...]} for ways Overpass could resolve."""
+    """Return {way_id: [(lon, lat), ...]} for ways Overpass could resolve.
+
+    Si un lote falla (504/red), lo parte en dos y reintenta. Un way suelto
+    que siga fallando se omite en lugar de tumbar todo el fetch.
+    """
     unique = sorted({int(w) for w in way_ids if int(w) > 0})
     if not unique:
         return {}
 
+    # Listas enormes (p.ej. Kansai ~11k) saturan Overpass con lotes de 80.
+    effective_batch = batch_size
+    if batch_size == DEFAULT_BATCH_SIZE and len(unique) > 2000:
+        effective_batch = 40
+
     out: Dict[int, List[Coord]] = {}
-    total_batches = (len(unique) + batch_size - 1) // batch_size
-    for batch_index, start in enumerate(range(0, len(unique), batch_size)):
-        batch = unique[start : start + batch_size]
+    skipped: List[int] = []
+    total_batches = (len(unique) + effective_batch - 1) // effective_batch
+
+    def fetch_chunk(chunk: List[int]) -> None:
+        if not chunk:
+            return
+        try:
+            query = _query_ways(chunk, timeout_s=timeout_s)
+            data = _post_with_retries(
+                query,
+                endpoints=endpoints,
+                timeout_s=timeout_s,
+                retries=retries,
+            )
+            out.update(_elements_to_ways(data))
+        except RuntimeError as exc:
+            if len(chunk) > 1:
+                mid = max(1, len(chunk) // 2)
+                print(
+                    f"  Overpass lote de {len(chunk)} falló ({exc}); "
+                    f"partiendo en {mid}+{len(chunk) - mid}",
+                    flush=True,
+                )
+                time.sleep(5.0)
+                fetch_chunk(chunk[:mid])
+                if sleep_between_batches_s > 0:
+                    time.sleep(sleep_between_batches_s)
+                fetch_chunk(chunk[mid:])
+            else:
+                print(f"  Overpass omitido way/{chunk[0]}: {exc}", flush=True)
+                skipped.append(chunk[0])
+
+    for batch_index, start in enumerate(range(0, len(unique), effective_batch)):
+        batch = unique[start : start + effective_batch]
         if on_progress:
             on_progress(batch_index + 1, total_batches, len(batch), len(unique))
-        query = _query_ways(batch, timeout_s=timeout_s)
-        data = _post_with_retries(
-            query,
-            endpoints=endpoints,
-            timeout_s=timeout_s,
-            retries=retries,
-        )
-        out.update(_elements_to_ways(data))
-        if start + batch_size < len(unique) and sleep_between_batches_s > 0:
+        else:
+            print(
+                f"  Overpass vías lote {batch_index + 1}/{total_batches} ({len(batch)} ids)",
+                flush=True,
+            )
+        fetch_chunk(batch)
+        if start + effective_batch < len(unique) and sleep_between_batches_s > 0:
             time.sleep(sleep_between_batches_s)
+
+    if skipped:
+        print(
+            f"  Overpass omitió {len(skipped)} vías tras agotar reintentos",
+            flush=True,
+        )
     return out
 
 
@@ -309,6 +353,31 @@ def _post_via_curl(endpoint: str, query: str, *, timeout_s: int) -> dict:
         query_path.unlink(missing_ok=True)
 
 
+def _transient_overpass_error(exc: BaseException) -> bool:
+    code = getattr(exc, "code", None)
+    if code in (429, 502, 503, 504):
+        return True
+    message = str(exc).lower()
+    needles = (
+        "ssl",
+        "handshake",
+        "504",
+        "502",
+        "503",
+        "429",
+        "timed out",
+        "timeout",
+        "unreachable",
+        "connection reset",
+        "temporarily",
+        "gateway",
+        "nodename",
+        "name or service",
+        "network is unreachable",
+    )
+    return any(needle in message for needle in needles)
+
+
 def _post_with_retries(
     query: str,
     *,
@@ -346,8 +415,8 @@ def _post_with_retries(
         ) as exc:
             last_error = exc
             message = str(exc).lower()
-            # Fallback TLS vía curl (LibreSSL viejo de /usr/bin/python3).
-            if "ssl" in message or "handshake" in message:
+            # curl: TLS viejo en macOS, y también 5xx/red inestable en GHA.
+            if _transient_overpass_error(exc):
                 try:
                     return _post_via_curl(endpoint, query, timeout_s=timeout_s)
                 except (
@@ -358,7 +427,7 @@ def _post_with_retries(
                     last_error = curl_exc
                     message = str(curl_exc).lower()
             # DNS / gateway: esperar más antes de cambiar de espejo.
-            if "nodename" in message or "name or service" in message or "504" in message:
+            if _transient_overpass_error(last_error or exc) or "nodename" in message:
                 time.sleep(min(90.0, 8.0 * (attempt + 1)))
             else:
                 time.sleep(min(45.0, 3.0 * (attempt + 1)))
